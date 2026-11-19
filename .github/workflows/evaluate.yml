@@ -19,3 +19,21 @@ jobs:
           name: prompt
           path: cases/storage-bucket/prompt.md
           retention-days: 1
+
+  generate:
+    needs: checkout
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: prompt
+          path: ${{ runner.temp }}/prompt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Set up Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.328   # pinned so runs stay comparable
+          claude --version
+      # (steps in between get added here)
