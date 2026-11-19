@@ -1,29 +1,23 @@
 [project]
 name = "kiln-evaluations"
 version = "0.1.0"
-description = "Add your description here"
-authors = [
-    { name = "Laurence MacGuire", email = "leprechaun@gmail.com" }
-]
+description = "Evaluates how well an LLM agent can use kiln"
 requires-python = ">=3.15"
 dependencies = [
     "kiln",
 ]
 
-[project.scripts]
-kiln-evaluations = "kiln_evaluations:main"
-
-[build-system]
-requires = ["uv_build>=0.13.8,<0.14.0"]
-build-backend = "uv_build"
-
-[tool.uv.sources]
-kiln = { git = "https://github.com/leprechaun/kiln", subdirectory = "tooling" }
-
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "pyyaml",
 ]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+kiln = { git = "https://github.com/leprechaun/kiln", subdirectory = "tooling" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

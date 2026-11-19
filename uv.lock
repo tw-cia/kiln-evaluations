@@ -31,7 +31,7 @@ dependencies = [
 [[package]]
 name = "kiln-evaluations"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "kiln" },
 ]
@@ -39,13 +39,17 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [{ name = "kiln", git = "https://github.com/leprechaun/kiln?subdirectory=tooling" }]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.2.0" }]
+dev = [
+    { name = "pytest", specifier = ">=9.2.0" },
+    { name = "pyyaml" },
+]
 
 [[package]]
 name = "packaging"

@@ -1,6 +1,7 @@
 name: evaluate
 
-# Static checks run on pull requests and main. Live checks (a later job) run on main only.
+# plan -> prompts -> generate (agent, blind) -> static (hidden checks).
+# Live checks and the report are later additions.
 on:
   workflow_dispatch:
     inputs:
@@ -11,7 +12,7 @@ on:
         description: Model to evaluate
         default: claude-sonnet-5-5
   pull_request:
-    paths: ["cases/**", "src/**", "uv.lock", "scripts/**", ".github/workflows/evaluate.yml"]
+    paths: ["cases/**", "uv.lock", ".github/workflows/evaluate.yml"]
   schedule:
     - cron: "0 6 * * 1"
 
@@ -21,76 +22,108 @@ permissions:
 env:
   SAMPLES: ${{ inputs.samples || '3' }}
   MODEL: ${{ inputs.model || 'claude-sonnet-5-5' }}
+  # Pinned so runs stay comparable. Bump deliberately.
+  KCL_VERSION: v0.13.3
+  CROSSPLANE_VERSION: v2.4.3
+  KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
 
 jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
-      samples: ${{ steps.plan.outputs.samples }}
       cases: ${{ steps.plan.outputs.cases }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+        with:
+          sparse-checkout: cases
+          persist-credentials: false
       - id: plan
         run: |
-          matrix="$(uv run kiln-evaluations plan --samples "$SAMPLES")"
-          echo "samples=$matrix" >> "$GITHUB_OUTPUT"
-          echo "cases=$(jq -c '{include: (.include | map({case}) | unique)}' <<<"$matrix")" >> "$GITHUB_OUTPUT"
+          cases="$(for d in cases/*/; do [ -f "${d}prompt.md" ] && basename "$d"; done | jq -R . | jq -sc .)"
+          echo "cases=$cases" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(jq -nc --argjson c "$cases" --argjson n "$SAMPLES" '{include: [$c[] as $case | range(1; $n + 1) as $sample | {case: $case, sample: $sample}]}')" >> "$GITHUB_OUTPUT"
 
-  # One bundle per case: the agent's job receives its own prompt and nothing else (ADR 0001).
-  bundle:
+  # One artifact per case holding ONLY that case's prompt: the agent never sees anything else.
+  prompts:
     needs: plan
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJson(needs.plan.outputs.cases) }}
+      matrix:
+        case: ${{ fromJson(needs.plan.outputs.cases) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: uv run kiln-evaluations bundle "${{ matrix.case }}" --out "bundle"
+        with:
+          sparse-checkout: cases/${{ matrix.case }}/prompt.md
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/upload-artifact@v4
         with:
-          name: bundle-${{ matrix.case }}
-          path: bundle/
-          include-hidden-files: true
+          name: prompt-${{ matrix.case }}
+          path: cases/${{ matrix.case }}/prompt.md
           retention-days: 1
 
-  # No token, no checkout: the agent can neither read nor clone this private repo.
+  # No checkout and no permissions: the agent can neither read nor clone this private repo.
   generate:
-    needs: [plan, bundle]
+    needs: [plan, prompts]
     runs-on: ubuntu-latest
     permissions: {}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.samples) }}
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: bundle-${{ matrix.case }}
-          path: bundle
+          name: prompt-${{ matrix.case }}
+          path: ${{ runner.temp }}/prompt
       - uses: astral-sh/setup-uv@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - name: Install tooling
-        working-directory: bundle
-        env:
-          WITH_CLAUDE: "1"
         run: |
-          scripts/install-tooling.sh
-          uv sync --frozen
-      - name: Generate
-        working-directory: bundle
+          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          chmod +x "$HOME/.local/bin/crossplane"
+          uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
+      - name: Start from a plain kiln init project
+        run: kiln init "$GITHUB_WORKSPACE" --group "s${{ github.run_id }}-${{ matrix.sample }}.eval.example.com"
+      - id: prompt
+        run: |
+          delimiter="EOF_$(openssl rand -hex 8)"
+          { echo "text<<$delimiter"; cat "$RUNNER_TEMP/prompt/prompt.md"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
+      - id: claude
+        continue-on-error: true   # a failed or exhausted sample is still an Output worth keeping
+        uses: anthropics/claude-code-action@f431adaf77e0fecf918431e75a2b5b45b85af002   # v1
+        with:
+          prompt: ${{ steps.prompt.outputs.text }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # the job's own zero-permission token, so the action never mints a GitHub App token (which could read the repo)
+          github_token: ${{ github.token }}
+          claude_args: |
+            --model ${{ env.MODEL }}
+            --max-turns 40
+            --max-budget-usd 0.50
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+      - name: Collect the Output
+        if: always()
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: >
-          uv run kiln-evaluations run "cases/${{ matrix.case }}"
-          --sample "${{ matrix.sample }}" --run-id "${{ github.run_id }}"
-          --model "$MODEL" --out "$GITHUB_WORKSPACE/outputs"
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          out="$RUNNER_TEMP/outputs/${{ matrix.case }}/${{ matrix.sample }}"
+          mkdir -p "$out"
+          cp -a "$GITHUB_WORKSPACE" "$out/project"
+          [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ] && cp "$EXECUTION_FILE" "$out/execution.json"
+          jq -n --arg case "${{ matrix.case }}" --argjson sample "${{ matrix.sample }}" --arg model "$MODEL" \
+                --arg conclusion "${{ steps.claude.outputs.conclusion }}" --arg run "${{ github.run_id }}" \
+                '{case: $case, sample: $sample, model: $model, conclusion: $conclusion, run_id: $run}' > "$out/manifest.json"
+          # the agent can read its own environment: never upload the key
+          { grep -rlIF -- "$ANTHROPIC_API_KEY" "$out" || true; } | xargs -r sed -i "s|$ANTHROPIC_API_KEY|[REDACTED]|g"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: output-${{ matrix.case }}-${{ matrix.sample }}
-          path: outputs/
+          path: ${{ runner.temp }}/outputs
           include-hidden-files: true
           retention-days: 90
 
@@ -102,21 +135,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: scripts/install-tooling.sh
+      - name: Install tooling
+        run: |
+          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          chmod +x "$HOME/.local/bin/crossplane"
       - uses: actions/download-artifact@v4
         with:
           pattern: output-*
           path: outputs
           merge-multiple: true
       - run: uv sync --frozen
-      - run: uv run kiln-evaluations analyze --out outputs
       - name: Static checks
         run: uv run pytest cases --outputs-dir outputs --junitxml results.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: static-results
-          path: |
-            results.xml
-            outputs/**/manifest.json
+          path: results.xml
           retention-days: 90

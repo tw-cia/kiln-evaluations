@@ -1,28 +1,22 @@
 # kiln-evaluations
 
-Evaluates how well an LLM agent can use [kiln](https://github.com/leprechaun/kiln): the agent gets a task in a fresh `kiln init` project, and hidden checks judge what it produces. See `GLOSSARY.md` for the vocabulary and `docs/adr/` for the decisions that shape the design.
+Evaluates how well an LLM agent can use [kiln](https://github.com/leprechaun/kiln): the agent gets a task in a fresh `kiln init` project, and hidden checks judge what it produces. See `GLOSSARY.md` for the vocabulary and `docs/adr/` for the decisions behind the design.
+
+Everything runs in GitHub Actions (`.github/workflows/evaluate.yml`); the only code is the checks.
 
 ```
 cases/<name>/
-  prompt.md          what the agent sees
-  seed/              optional starting project state (agent sees it)
-  fixtures/, test_*.py   grader only: never leave the repo checkout
-src/kiln_evaluations/    runner (shipped to the agent's job) and grading-side modules (not shipped)
-tests/                   tests of the harness itself
+  prompt.md              what the agent sees (the only file of a case that leaves the repo checkout)
+  test_*.py, fixtures/   the hidden checks
+tests/                   tests of the checks themselves (a good Output, and broken ones)
 ```
 
-## Commands
+## Pipeline
 
-| Command | Does |
-|---|---|
-| `kiln-evaluations run cases/<name> --sample N` | one sample: project, scrubbed transcript and manifest under `outputs/<name>/<N>/` |
-| `kiln-evaluations analyze --out outputs` | grading side: adds Research accounting to the manifests |
-| `kiln-evaluations plan --samples N` | the cases x samples matrix, as JSON |
-| `kiln-evaluations bundle <name> --out DIR` | the allowlist bundle the generate job receives for one case |
-| `pytest cases --outputs-dir outputs` | the hidden checks, once per sample |
-| `pytest` | tests of the harness (uses a scripted fake `claude`) |
+`plan` → `prompts` (one artifact per case, holding only its `prompt.md`) → `generate` (`anthropics/claude-code-action` in an empty job: no checkout, no permissions) → `static` (full checkout, no API key; runs `pytest cases --outputs-dir outputs`).
 
-## Pipeline (`.github/workflows/evaluate.yml`)
+Secret needed: `ANTHROPIC_API_KEY`. The repo must stay private.
 
-`plan` → `bundle` (one per case) → `generate` (API key, no token, no checkout) → `static` (full checkout, no API key).
-Live checks and the report are later tickets. Secret needed: `ANTHROPIC_API_KEY`. The repo must stay private.
+## Locally
+
+`uv sync && uv run pytest` runs the tests of the checks. To run a case's checks on real Outputs: `uv run pytest cases --outputs-dir <dir holding <case>/<n>/project>`.
