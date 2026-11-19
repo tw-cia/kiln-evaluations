@@ -39,6 +39,8 @@ def main():
     prompt = args[args.index("-p") + 1]
     emit({"type": "system", "subtype": "init"})
     emit({"type": "assistant", "message": {"content": [{"type": "text", "text": prompt}]}})
+    for use in scenario.get("tool_uses", []):
+        emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_x", **use}]}})
     for name in scenario.get("echo_env", []):
         emit({"type": "assistant", "message": {"content": [{"type": "text", "text": os.environ.get(name, "")}]}})
     for path, env_name in scenario.get("write_env_to", {}).items():

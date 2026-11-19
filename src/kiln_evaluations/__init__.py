@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from kiln_evaluations import research
+
 
 def run_case(
     case: Path, sample: int, out: Path, run_id: str, model: str, max_turns: int, max_budget_usd: float
@@ -40,6 +42,7 @@ def run_case(
     _scrub_secret(sample_dir)
     result = _final_result(sample_dir / "transcript.jsonl")
     usage = result.get("usage", {})
+    research_found, tooling_network = research.account(sample_dir / "transcript.jsonl")
     manifest = {
         "case": case.name,
         "sample": sample,
@@ -51,6 +54,8 @@ def run_case(
         "kiln_commit": _kiln_commit(),
         "num_turns": result.get("num_turns"),
         "cost_usd": result.get("total_cost_usd"),
+        "research": research_found,
+        "tooling_network": tooling_network,
         "tokens": {
             "input": usage.get("input_tokens"),
             "output": usage.get("output_tokens"),
