@@ -1,13 +1,10 @@
 name: evaluate
 
-# plan -> prompts -> generate (agent, blind) -> static (hidden checks).
-# Live checks and the report are later additions.
+# prompt -> generate (agent, blind) -> static (hidden checks). One case, one sample, for now.
+# More jobs (render check, live checks, report) get added to this pipeline later.
 on:
   workflow_dispatch:
     inputs:
-      samples:
-        description: Samples per case
-        default: "3"
       model:
         description: Model to evaluate
         default: claude-sonnet-5-5
@@ -20,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  SAMPLES: ${{ inputs.samples || '3' }}
+  CASE: storage-bucket
   MODEL: ${{ inputs.model || 'claude-sonnet-5-5' }}
   # Pinned so runs stay comparable. Bump deliberately.
   KCL_VERSION: v0.13.3
@@ -28,53 +25,30 @@ env:
   KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
 
 jobs:
-  plan:
+  # An artifact holding ONLY the case's prompt: the agent never sees anything else.
+  prompt:
     runs-on: ubuntu-latest
-    outputs:
-      cases: ${{ steps.plan.outputs.cases }}
-      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: cases
-          persist-credentials: false
-      - id: plan
-        run: |
-          cases="$(for d in cases/*/; do [ -f "${d}prompt.md" ] && basename "$d"; done | jq -R . | jq -sc .)"
-          echo "cases=$cases" >> "$GITHUB_OUTPUT"
-          echo "matrix=$(jq -nc --argjson c "$cases" --argjson n "$SAMPLES" '{include: [$c[] as $case | range(1; $n + 1) as $sample | {case: $case, sample: $sample}]}')" >> "$GITHUB_OUTPUT"
-
-  # One artifact per case holding ONLY that case's prompt: the agent never sees anything else.
-  prompts:
-    needs: plan
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        case: ${{ fromJson(needs.plan.outputs.cases) }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: cases/${{ matrix.case }}/prompt.md
+          sparse-checkout: cases/${{ env.CASE }}/prompt.md
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: actions/upload-artifact@v4
         with:
-          name: prompt-${{ matrix.case }}
-          path: cases/${{ matrix.case }}/prompt.md
+          name: prompt
+          path: cases/${{ env.CASE }}/prompt.md
           retention-days: 1
 
   # No checkout and no permissions: the agent can neither read nor clone this private repo.
   generate:
-    needs: [plan, prompts]
+    needs: prompt
     runs-on: ubuntu-latest
     permissions: {}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: prompt-${{ matrix.case }}
+          name: prompt
           path: ${{ runner.temp }}/prompt
       - uses: astral-sh/setup-uv@v6
       - name: Install tooling
@@ -85,7 +59,7 @@ jobs:
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - name: Start from a plain kiln init project
-        run: kiln init "$GITHUB_WORKSPACE" --group "s${{ github.run_id }}-${{ matrix.sample }}.eval.example.com"
+        run: kiln init "$GITHUB_WORKSPACE" --group "s${{ github.run_id }}-1.eval.example.com"
       - id: prompt
         run: |
           delimiter="EOF_$(openssl rand -hex 8)"
@@ -110,11 +84,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          out="$RUNNER_TEMP/outputs/${{ matrix.case }}/${{ matrix.sample }}"
+          out="$RUNNER_TEMP/outputs/$CASE/1"
           mkdir -p "$out"
           cp -a "$GITHUB_WORKSPACE" "$out/project"
           [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ] && cp "$EXECUTION_FILE" "$out/execution.json"
-          jq -n --arg case "${{ matrix.case }}" --argjson sample "${{ matrix.sample }}" --arg model "$MODEL" \
+          jq -n --arg case "$CASE" --argjson sample 1 --arg model "$MODEL" \
                 --arg conclusion "${{ steps.claude.outputs.conclusion }}" --arg run "${{ github.run_id }}" \
                 '{case: $case, sample: $sample, model: $model, conclusion: $conclusion, run_id: $run}' > "$out/manifest.json"
           # the agent can read its own environment: never upload the key
@@ -122,7 +96,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: output-${{ matrix.case }}-${{ matrix.sample }}
+          name: output
           path: ${{ runner.temp }}/outputs
           include-hidden-files: true
           retention-days: 90
@@ -143,9 +117,8 @@ jobs:
           chmod +x "$HOME/.local/bin/crossplane"
       - uses: actions/download-artifact@v4
         with:
-          pattern: output-*
+          name: output
           path: outputs
-          merge-multiple: true
       - run: uv sync --frozen
       - name: Static checks
         run: uv run pytest cases --outputs-dir outputs --junitxml results.xml

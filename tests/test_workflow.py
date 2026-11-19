@@ -17,9 +17,9 @@ def test_the_generate_job_has_no_token_and_never_checks_out_the_repo():
     assert not any(u.startswith("actions/checkout") for u in _uses("generate"))
 
 
-def test_the_generate_job_only_receives_its_own_cases_prompt():
+def test_the_generate_job_only_receives_the_prompt():
     download = next(s for s in JOBS["generate"]["steps"] if s.get("uses", "").startswith("actions/download-artifact"))
-    assert download["with"]["name"] == "prompt-${{ matrix.case }}"
+    assert download["with"]["name"] == "prompt"
 
 
 def test_only_the_generate_job_can_see_the_api_key():

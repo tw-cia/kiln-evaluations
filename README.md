@@ -13,9 +13,9 @@ tests/                   tests of the checks themselves (a good Output, and brok
 
 ## Pipeline
 
-`plan` → `prompts` (one artifact per case, holding only its `prompt.md`) → `generate` (`anthropics/claude-code-action` in an empty job: no checkout, no permissions) → `static` (full checkout, no API key; runs `pytest cases --outputs-dir outputs`).
+`prompt` (an artifact holding only the case's `prompt.md`) → `generate` (`anthropics/claude-code-action` in an empty job: no checkout, no permissions) → `static` (full checkout, no API key; runs `pytest cases --outputs-dir outputs`).
 
-Secret needed: `ANTHROPIC_API_KEY`. The repo must stay private.
+One case (`storage-bucket`), one sample, for now; more jobs and cases get added later. Secret needed: `ANTHROPIC_API_KEY`. The repo must stay private.
 
 ## Locally
 
