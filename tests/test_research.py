@@ -13,7 +13,7 @@ def test_an_agent_that_only_used_kiln_and_its_own_files_did_no_research(run_case
         _bash("kiln docs composing"),
         _bash("cd kcl-scripts && kcl test ."),
         _bash("kiln generate-all"),
-    ]}).manifest
+    ]}).analyzed()
 
     assert manifest["research"]["count"] == 0
     assert manifest["tooling_network"]["count"] == 0
@@ -23,7 +23,7 @@ def test_web_searches_and_fetches_are_research_with_their_queries_and_urls(run_c
     manifest = run_case({"tool_uses": [
         {"name": "WebSearch", "input": {"query": "crossplane bucket versioning"}},
         {"name": "WebFetch", "input": {"url": "https://docs.crossplane.io/latest/", "prompt": "read"}},
-    ]}).manifest
+    ]}).analyzed()
 
     assert manifest["research"]["count"] == 2
     assert manifest["research"]["queries"] == ["crossplane bucket versioning"]
@@ -46,7 +46,7 @@ def test_web_searches_and_fetches_are_research_with_their_queries_and_urls(run_c
     ("python3 -c \"import urllib.request; urllib.request.urlopen('https://c.example/y')\"", ["https://c.example/y"]),
 ])
 def test_shell_commands_that_reach_outside_are_research(run_case, command, urls):
-    manifest = run_case({"tool_uses": [_bash(command)]}).manifest
+    manifest = run_case({"tool_uses": [_bash(command)]}).analyzed()
 
     assert manifest["research"]["count"] == 1
     assert manifest["research"]["commands"] == [command]
@@ -55,7 +55,7 @@ def test_shell_commands_that_reach_outside_are_research(run_case, command, urls)
 
 
 def test_two_outside_commands_in_one_line_are_two_research_events(run_case):
-    manifest = run_case({"tool_uses": [_bash("curl https://a.example; wget https://b.example")]}).manifest
+    manifest = run_case({"tool_uses": [_bash("curl https://a.example; wget https://b.example")]}).analyzed()
 
     assert manifest["research"]["count"] == 2
     assert manifest["research"]["urls"] == ["https://a.example", "https://b.example"]
@@ -71,7 +71,7 @@ def test_two_outside_commands_in_one_line_are_two_research_events(run_case):
     "uvx --from git+https://github.com/leprechaun/kiln#subdirectory=tooling kiln generate-all",
 ])
 def test_network_use_by_the_tooling_is_not_research(run_case, command):
-    manifest = run_case({"tool_uses": [_bash(command)]}).manifest
+    manifest = run_case({"tool_uses": [_bash(command)]}).analyzed()
 
     assert manifest["tooling_network"]["count"] == 1
     assert manifest["tooling_network"]["commands"] == [command]
@@ -84,7 +84,7 @@ def test_network_use_by_the_tooling_is_not_research(run_case, command):
     "echo 'see https://docs.crossplane.io for details' > NOTES.md",
 ])
 def test_harmless_commands_and_urls_that_are_only_written_down_are_not_research(run_case, command):
-    manifest = run_case({"tool_uses": [_bash(command)]}).manifest
+    manifest = run_case({"tool_uses": [_bash(command)]}).analyzed()
 
     assert manifest["research"]["count"] == 0
     assert manifest["tooling_network"]["count"] == 0

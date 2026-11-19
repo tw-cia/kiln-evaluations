@@ -112,3 +112,10 @@ def test_the_agent_starts_in_an_untouched_kiln_init_project(run_case, tmp_path):
 
     assert _tree(reference), "reference project is empty, comparison would be vacuous"
     assert _tree(result.project) == _tree(reference)
+
+
+def test_the_runner_itself_does_not_judge_research_so_the_agent_cannot_learn_the_rules(run_case):
+    manifest = run_case({"tool_uses": [{"name": "WebSearch", "input": {"query": "x"}}]}).manifest
+
+    assert "research" not in manifest
+    assert "tooling_network" not in manifest

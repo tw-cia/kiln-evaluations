@@ -1,5 +1,6 @@
 name: evaluate
 
+# Static checks run on pull requests and main. Live checks (a later job) run on main only.
 on:
   workflow_dispatch:
     inputs:
@@ -7,92 +8,115 @@ on:
         description: Samples per case
         default: "3"
       model:
-        description: Model to evaluate with
+        description: Model to evaluate
         default: claude-sonnet-5-5
-      tests_ref:
-        description: Ref of tw-cia/kiln-evaluations-tests to run
-        default: main
+  pull_request:
+    paths: ["cases/**", "src/**", "uv.lock", "scripts/**", ".github/workflows/evaluate.yml"]
   schedule:
     - cron: "0 6 * * 1"
 
 permissions:
   contents: read
 
+env:
+  SAMPLES: ${{ inputs.samples || '3' }}
+  MODEL: ${{ inputs.model || 'claude-sonnet-5-5' }}
+
 jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
+      samples: ${{ steps.plan.outputs.samples }}
+      cases: ${{ steps.plan.outputs.cases }}
     steps:
       - uses: actions/checkout@v4
-      - id: matrix
-        env:
-          SAMPLES: ${{ inputs.samples || '3' }}
+      - uses: astral-sh/setup-uv@v6
+      - id: plan
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, os, pathlib
-          cases = sorted(p.name for p in pathlib.Path("cases").iterdir() if (p / "prompt.md").exists())
-          include = [{"case": c, "sample": s} for c in cases for s in range(1, int(os.environ["SAMPLES"]) + 1)]
-          print("matrix=" + json.dumps({"include": include}))
-          PY
+          matrix="$(uv run kiln-evaluations plan --samples "$SAMPLES")"
+          echo "samples=$matrix" >> "$GITHUB_OUTPUT"
+          echo "cases=$(jq -c '{include: (.include | map({case}) | unique)}' <<<"$matrix")" >> "$GITHUB_OUTPUT"
 
-  generate:
+  # One bundle per case: the agent's job receives its own prompt and nothing else (ADR 0001).
+  bundle:
     needs: plan
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.plan.outputs.cases) }}
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run kiln-evaluations bundle "${{ matrix.case }}" --out "bundle"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.case }}
+          path: bundle/
+          include-hidden-files: true
+          retention-days: 1
+
+  # No token, no checkout: the agent can neither read nor clone this private repo.
+  generate:
+    needs: [plan, bundle]
+    runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.samples) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-${{ matrix.case }}
+          path: bundle
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Install tooling
+        working-directory: bundle
+        env:
+          WITH_CLAUDE: "1"
         run: |
-          npm install -g @anthropic-ai/claude-code
-          curl -fsSL https://kcl-lang.io/script/install-cli.sh | bash
-          curl -sL "https://raw.githubusercontent.com/crossplane/crossplane/main/install.sh" | sh
-          sudo mv crossplane /usr/local/bin/
-          uv sync
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          scripts/install-tooling.sh
+          uv sync --frozen
       - name: Generate
+        working-directory: bundle
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: >
-          kiln-evaluations run cases/${{ matrix.case }}
-          --sample ${{ matrix.sample }} --model "${{ inputs.model || 'claude-sonnet-5-5' }}"
+          uv run kiln-evaluations run "cases/${{ matrix.case }}"
+          --sample "${{ matrix.sample }}" --run-id "${{ github.run_id }}"
+          --model "$MODEL" --out "$GITHUB_WORKSPACE/outputs"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: output-${{ matrix.case }}-${{ matrix.sample }}
           path: outputs/
           include-hidden-files: true
-          retention-days: 30
+          retention-days: 90
 
-  test:
+  # Full checkout, but no API key: generated output is untrusted and the checks must stay hidden from the agent.
+  static:
     needs: generate
     if: always() && needs.generate.result != 'skipped'
     runs-on: ubuntu-latest
-    # No ANTHROPIC_API_KEY here: generated output is untrusted.
     steps:
       - uses: actions/checkout@v4
-        with:
-          repository: tw-cia/kiln-evaluations-tests
-          ref: ${{ inputs.tests_ref || 'main' }}
-          token: ${{ secrets.TESTS_REPO_TOKEN }}
-          path: tests
       - uses: astral-sh/setup-uv@v6
+      - run: scripts/install-tooling.sh
       - uses: actions/download-artifact@v4
         with:
           pattern: output-*
           path: outputs
           merge-multiple: true
-      - name: Run tests
-        working-directory: tests
-        run: uv run pytest --outputs-dir ../outputs --junitxml ../results.xml
+      - run: uv sync --frozen
+      - run: uv run kiln-evaluations analyze --out outputs
+      - name: Static checks
+        run: uv run pytest cases --outputs-dir outputs --junitxml results.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results
-          path: results.xml
+          name: static-results
+          path: |
+            results.xml
+            outputs/**/manifest.json
+          retention-days: 90

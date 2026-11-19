@@ -2,7 +2,6 @@
 name = "kiln-evaluations"
 version = "0.1.0"
 description = "Add your description here"
-readme = "README.md"
 authors = [
     { name = "Laurence MacGuire", email = "leprechaun@gmail.com" }
 ]

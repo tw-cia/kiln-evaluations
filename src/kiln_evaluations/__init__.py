@@ -9,8 +9,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from kiln_evaluations import research
-
 
 def run_case(
     case: Path, sample: int, out: Path, run_id: str, model: str, max_turns: int, max_budget_usd: float
@@ -42,7 +40,6 @@ def run_case(
     _scrub_secret(sample_dir)
     result = _final_result(sample_dir / "transcript.jsonl")
     usage = result.get("usage", {})
-    research_found, tooling_network = research.account(sample_dir / "transcript.jsonl")
     manifest = {
         "case": case.name,
         "sample": sample,
@@ -54,8 +51,6 @@ def run_case(
         "kiln_commit": _kiln_commit(),
         "num_turns": result.get("num_turns"),
         "cost_usd": result.get("total_cost_usd"),
-        "research": research_found,
-        "tooling_network": tooling_network,
         "tokens": {
             "input": usage.get("input_tokens"),
             "output": usage.get("output_tokens"),
@@ -119,6 +114,22 @@ def _final_result(transcript: Path) -> dict:
     return result
 
 
+def analyze(out: Path) -> int:
+    """Grading-side step: add Research accounting to every manifest under out.
+
+    Imported lazily and kept out of the bundle the agent receives, so the agent cannot read the rules
+    it is judged by.
+    """
+    from kiln_evaluations import research
+
+    for manifest_path in sorted(out.glob("*/*/manifest.json")):
+        transcript = manifest_path.parent / "transcript.jsonl"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["research"], manifest["tooling_network"] = research.account(transcript)
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="kiln-evaluations")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -130,7 +141,28 @@ def main() -> int:
     run.add_argument("--model", default="claude-sonnet-5-5")
     run.add_argument("--max-turns", type=int, default=40)
     run.add_argument("--max-budget-usd", type=float, default=0.5)
+    analyze_cmd = sub.add_parser("analyze", help="Add Research accounting to every manifest under --out")
+    analyze_cmd.add_argument("--out", type=Path, default=Path("outputs"))
+    bundle_cmd = sub.add_parser("bundle", help="Build the allowlist bundle for one case")
+    bundle_cmd.add_argument("case", help="Case name, e.g. storage-bucket")
+    bundle_cmd.add_argument("--root", type=Path, default=Path("."))
+    bundle_cmd.add_argument("--out", type=Path, required=True)
+    plan_cmd = sub.add_parser("plan", help="Print the cases x samples matrix as JSON")
+    plan_cmd.add_argument("--root", type=Path, default=Path("."))
+    plan_cmd.add_argument("--samples", type=int, default=3)
     args = parser.parse_args()
+    if args.command == "plan":
+        from kiln_evaluations import bundle
+
+        print(json.dumps(bundle.plan(args.root.resolve(), args.samples)))
+        return 0
+    if args.command == "bundle":
+        from kiln_evaluations import bundle
+
+        bundle.build(args.root.resolve(), args.case, args.out.resolve())
+        return 0
+    if args.command == "analyze":
+        return analyze(args.out.resolve())
     return run_case(
         args.case.resolve(), args.sample, args.out.resolve(), args.run_id,
         args.model, args.max_turns, args.max_budget_usd,

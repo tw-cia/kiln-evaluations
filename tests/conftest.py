@@ -27,8 +27,9 @@ def run_case(tmp_path):
     out = tmp_path / "outputs"
 
     class Result:
-        def __init__(self, proc, sample):
+        def __init__(self, proc, sample, env):
             self.proc = proc
+            self.env = env
             self.sample_dir = out / "demo" / str(sample)
             self.project = self.sample_dir / "project"
             self.transcript = self.sample_dir / "transcript.jsonl"
@@ -37,6 +38,12 @@ def run_case(tmp_path):
         @property
         def manifest(self):
             return json.loads(self.manifest_path.read_text())
+
+        def analyzed(self):
+            """Run the grading-side `analyze` step over the outputs, then return the sample's manifest."""
+            subprocess.run([sys.executable, "-m", "kiln_evaluations", "analyze", "--out", str(out)],
+                           env=self.env, check=True, capture_output=True, text=True)
+            return self.manifest
 
     def _run(scenario=None, sample=1, run_id="t1", env=None, args=()):
         scenario_file = tmp_path / "scenario.json"
@@ -52,7 +59,7 @@ def run_case(tmp_path):
              "--sample", str(sample), "--out", str(out), "--run-id", run_id, *args],
             env=full_env, capture_output=True, text=True,
         )
-        return Result(proc, sample)
+        return Result(proc, sample, full_env)
 
     return _run
 
