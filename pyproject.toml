@@ -1,0 +1,30 @@
+[project]
+name = "kiln-evaluations"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Laurence MacGuire", email = "leprechaun@gmail.com" }
+]
+requires-python = ">=3.15"
+dependencies = [
+    "kiln",
+]
+
+[project.scripts]
+kiln-evaluations = "kiln_evaluations:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+kiln = { git = "https://github.com/leprechaun/kiln", subdirectory = "tooling" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
