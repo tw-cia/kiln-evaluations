@@ -1,0 +1,21 @@
+name: evaluate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # (steps in between get added here)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prompt
+          path: cases/storage-bucket/prompt.md
+          retention-days: 1
