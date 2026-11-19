@@ -8,3 +8,5 @@ The pipeline is a chain of jobs, each with the least it needs: extracting the ca
 - The XR is written by an agent from a second, agent-visible prompt, so the expected values live in that prompt and the live checks know what to assert.
 - A human reviews the composition and the XR at the `aws` environment's approval, before anything touches the cluster. Teardown is a separate `if: always()` job.
 - Tests over the workflow file enforce the matrix (no job references both Claude and AWS credentials, and so on). Weakening one is a deliberate act.
+- Each kind of credential lives in one reusable workflow (`claude-sandbox.yml`, and later an `aws` one) that callers can only parametrise through inputs. A composite action would not work: it must be checked out, and the agent job has no checkout and no token. The reusable workflow's job sets `permissions: {}` and `environment: claude` itself, so a caller cannot widen them.
+- Tool versions are pinned in both the sandbox and the caller (the static job needs them too); a test keeps them equal.

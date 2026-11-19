@@ -15,11 +15,9 @@ permissions:
 
 env:
   CASE: storage-bucket
-  MODEL: ${{ inputs.model || 'claude-sonnet-5-5' }}
-  # Pinned so runs stay comparable. Bump deliberately.
+  # Pinned so runs stay comparable. Bump deliberately (and keep in step with claude-sandbox.yml).
   KCL_VERSION: v0.13.3
   CROSSPLANE_VERSION: v2.4.3
-  KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
 
 jobs:
   # An artifact holding ONLY the case's prompt: the agent never sees anything else.
@@ -37,67 +35,17 @@ jobs:
           path: cases/${{ env.CASE }}/prompt.md
           retention-days: 1
 
-  # No checkout and no permissions: the agent can neither read nor clone this private repo.
+  # The agent runs in the shared Claude sandbox (see claude-sandbox.yml): no checkout, no token, no AWS.
   generate:
     needs: prompt
-    runs-on: ubuntu-latest
-    environment: claude   # holds ANTHROPIC_API_KEY, so no other job can see it
     permissions: {}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: prompt
-          path: ${{ runner.temp }}/prompt
-      - uses: astral-sh/setup-uv@v6
-      - name: Install tooling
-        run: |
-          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
-          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
-          chmod +x "$HOME/.local/bin/crossplane"
-          uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
-      - name: Start from a plain kiln init project
-        run: kiln init "$GITHUB_WORKSPACE" --group "s${{ github.run_id }}-1.eval.example.com"
-      - id: prompt
-        run: |
-          delimiter="EOF_$(openssl rand -hex 8)"
-          { echo "text<<$delimiter"; cat "$RUNNER_TEMP/prompt/prompt.md"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
-      - id: claude
-        continue-on-error: true   # a failed or exhausted sample is still an Output worth keeping
-        uses: anthropics/claude-code-action@f431adaf77e0fecf918431e75a2b5b45b85af002   # v1
-        with:
-          prompt: ${{ steps.prompt.outputs.text }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # the job's own zero-permission token, so the action never mints a GitHub App token (which could read the repo)
-          github_token: ${{ github.token }}
-          claude_args: |
-            --model ${{ env.MODEL }}
-            --max-turns 40
-            --max-budget-usd 0.50
-            --permission-mode acceptEdits
-            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
-      - name: Collect the Output
-        if: always()
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-        run: |
-          out="$RUNNER_TEMP/outputs/$CASE/1"
-          mkdir -p "$out"
-          cp -a "$GITHUB_WORKSPACE" "$out/project"
-          [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ] && cp "$EXECUTION_FILE" "$out/execution.json"
-          jq -n --arg case "$CASE" --argjson sample 1 --arg model "$MODEL" \
-                --arg conclusion "${{ steps.claude.outputs.conclusion }}" --arg run "${{ github.run_id }}" \
-                '{case: $case, sample: $sample, model: $model, conclusion: $conclusion, run_id: $run}' > "$out/manifest.json"
-          # the agent can read its own environment: never upload the key
-          { grep -rlIF -- "$ANTHROPIC_API_KEY" "$out" || true; } | xargs -r sed -i "s|$ANTHROPIC_API_KEY|[REDACTED]|g"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: output
-          path: ${{ runner.temp }}/outputs
-          include-hidden-files: true
-          retention-days: 90
+    uses: ./.github/workflows/claude-sandbox.yml
+    with:
+      prompt-artifact: prompt
+      output-artifact: output
+      output-path: storage-bucket/1
+      group: s${{ github.run_id }}-1.eval.example.com
+      model: ${{ inputs.model || 'claude-sonnet-5-5' }}
 
   # Full checkout, but no API key: generated output is untrusted and the checks must stay hidden from the agent.
   static:
