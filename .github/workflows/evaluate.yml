@@ -16,8 +16,8 @@ jobs:
       # (steps in between get added here)
       - uses: actions/upload-artifact@v4
         with:
-          name: prompt
-          path: cases/hello-world/prompt.md
+          name: agent
+          path: cases/hello-world/agent/
           retention-days: 1
 
   generate:
@@ -27,12 +27,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: prompt
-          path: ${{ runner.temp }}/prompt
+          name: agent
+          path: ${{ runner.temp }}/agent
       - id: prompt
         run: |
           delimiter="EOF_$(openssl rand -hex 8)"
-          { echo "text<<$delimiter"; cat "$RUNNER_TEMP/prompt/prompt.md"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
+          { echo "text<<$delimiter"; cat "$RUNNER_TEMP/agent/prompt.md"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
       - name: Run Claude Code
         uses: anthropics/claude-code-action@f431adaf77e0fecf918431e75a2b5b45b85af002   # v1
         with:

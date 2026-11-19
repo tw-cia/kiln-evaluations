@@ -4,9 +4,9 @@ Evaluates how well an LLM agent can use [kiln](https://github.com/leprechaun/kil
 
 ```
 cases/<name>/
-  prompt.md              what the agent sees (the only file of a case that leaves the repo checkout)
-  test_*.py, fixtures/   the hidden checks
-tests/                   tests of the checks themselves (a good Output, and broken ones)
+  agent/         everything the agent may see: prompt.md, plus any starting context (the only part that leaves the checkout)
+  tests/         the hidden checks and their fixtures: never given to the agent
+tests/           tests of the checks themselves (a good Output, and broken ones)
 ```
 
 ## Pipeline
