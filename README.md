@@ -13,9 +13,13 @@ tests/                   tests of the checks themselves (a good Output, and brok
 
 ## Pipeline
 
-`prompt` (an artifact holding only the case's `prompt.md`) → `generate` (`anthropics/claude-code-action` in an empty job: no checkout, no permissions) → `static` (full checkout, no API key; runs `pytest cases --outputs-dir outputs`).
+Built one job at a time (`.github/workflows/evaluate.yml`); manual trigger only for now.
 
-One case (`storage-bucket`), one sample, for now; more jobs and cases get added later. Secret needed: `ANTHROPIC_API_KEY`. The repo must stay private.
+1. `prompt`: extract the case's `prompt.md` into an artifact (no cloud credentials)
+2. `generate`: `anthropics/claude-code-action` in an empty job (Claude key; no checkout, no permissions, no AWS)
+3. `static`: full checkout, hidden checks over the downloaded Output (no credentials)
+
+Designed, not built yet (ADR 0003): the agent writes an XR, static checks on it, a human gate, apply to the cluster with AWS credentials (no Claude key), teardown. No job holds more than one kind of credential. Secret: `ANTHROPIC_API_KEY`, in the `claude` environment. The repo must stay private.
 
 ## Locally
 
