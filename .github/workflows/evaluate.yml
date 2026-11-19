@@ -29,11 +29,15 @@ jobs:
         with:
           name: prompt
           path: ${{ runner.temp }}/prompt
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Set up Claude Code
+      - id: prompt
         run: |
-          npm install -g @anthropic-ai/claude-code@2.1.328   # pinned so runs stay comparable
-          claude --version
+          delimiter="EOF_$(openssl rand -hex 8)"
+          { echo "text<<$delimiter"; cat "$RUNNER_TEMP/prompt/prompt.md"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@f431adaf77e0fecf918431e75a2b5b45b85af002   # v1
+        with:
+          prompt: ${{ steps.prompt.outputs.text }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # the job's own zero-permission token, so the action never mints a GitHub App token (which could read the repo)
+          github_token: ${{ github.token }}
       # (steps in between get added here)
