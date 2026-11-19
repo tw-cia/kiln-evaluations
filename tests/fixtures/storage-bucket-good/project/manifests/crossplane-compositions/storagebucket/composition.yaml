@@ -1,0 +1,78 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: storagebucket-kcl-first
+spec:
+  compositeTypeRef:
+    apiVersion: platform.example.com/v1alpha1
+    kind: StorageBucket
+  mode: Pipeline
+  pipeline:
+  - step: compose
+    functionRef:
+      name: function-kcl
+    input:
+      apiVersion: krm.kcl.dev/v1alpha1
+      kind: KCLInput
+      spec:
+        source: |
+          # Curated provider schemas. `kiln import <crd>` appends here.
+
+          schema S3AwsmUpboundIoV1beta1BucketSpecForProvider:
+              region?: str
+
+          schema S3AwsmUpboundIoV1beta1BucketVersioningSpecForProviderBucketRef:
+              name?: str
+
+          schema S3AwsmUpboundIoV1beta1BucketVersioningSpecForProviderVersioningConfiguration:
+              status?: str
+
+          schema S3AwsmUpboundIoV1beta1BucketVersioningSpecForProvider:
+              bucketRef?: S3AwsmUpboundIoV1beta1BucketVersioningSpecForProviderBucketRef
+              region?: str
+              versioningConfiguration?: S3AwsmUpboundIoV1beta1BucketVersioningSpecForProviderVersioningConfiguration
+
+          # Your composite resource (XR) spec schemas, one per kind, e.g. `schema MyKindSpec:`.
+
+          schema StorageBucketSpec:
+              region: str
+              versioning: bool = True
+
+          composeStorageBucket = lambda oxr, ocds -> [any] {
+              spec: StorageBucketSpec = oxr.spec
+
+              _bucketName = "bucket"
+              _versioningName = "versioning"
+
+              _bucketForProvider: S3AwsmUpboundIoV1beta1BucketSpecForProvider = {
+                  region = spec.region
+              }
+              _bucket = {
+                  apiVersion = "s3.aws.m.upbound.io/v1beta1"
+                  kind = "Bucket"
+                  metadata.annotations = {"krm.kcl.dev/composition-resource-name" = _bucketName}
+                  spec.forProvider = _bucketForProvider
+              }
+
+              _versioningForProvider: S3AwsmUpboundIoV1beta1BucketVersioningSpecForProvider = {
+                  region = spec.region
+                  bucketRef = {name = "bucket"}
+                  versioningConfiguration = {status = "Enabled"}
+              }
+              _versioning = {
+                  apiVersion = "s3.aws.m.upbound.io/v1beta1"
+                  kind = "BucketVersioning"
+                  metadata.annotations = {"krm.kcl.dev/composition-resource-name" = _versioningName}
+                  spec.forProvider = _versioningForProvider
+              }
+
+              [_bucket, _versioning] if spec.versioning else [_bucket]
+          }
+
+          _kilnSpecFields = ["region", "versioning"]
+          _kilnObservedXr = option("params").oxr
+          _kilnOxr = _kilnObservedXr | {spec = {k: v for k, v in _kilnObservedXr.spec if k in _kilnSpecFields}} if _kilnObservedXr?.spec else _kilnObservedXr
+          items = composeStorageBucket(_kilnOxr, option("params").ocds)
+  - step: auto-ready
+    functionRef:
+      name: function-auto-ready

@@ -1,0 +1,4 @@
+apiVersion: platform.example.com/v1alpha1
+kind: StorageBucket
+metadata: {name: demo, namespace: default}
+spec: {region: eu-west-1}

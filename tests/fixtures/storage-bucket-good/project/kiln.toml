@@ -1,0 +1,3 @@
+group = "platform.example.com"
+format = "yaml"
+scope = "Namespaced"

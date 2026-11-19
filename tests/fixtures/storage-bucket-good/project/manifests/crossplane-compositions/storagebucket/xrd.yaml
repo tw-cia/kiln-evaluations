@@ -1,0 +1,28 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: storagebuckets.platform.example.com
+spec:
+  group: platform.example.com
+  names:
+    kind: StorageBucket
+    plural: storagebuckets
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            properties:
+              region:
+                type: string
+              versioning:
+                default: true
+                type: boolean
+            required:
+            - region
+            type: object
