@@ -1,23 +1,14 @@
 name: evaluate
 
-# prompt -> generate (agent, blind) -> static (hidden checks). One case, one sample, for now.
-# More jobs (render check, live checks, report) get added to this pipeline later.
+# Built up one job at a time. For now: run the agent on one case and keep what it produces.
 on:
   workflow_dispatch:
     inputs:
       model:
         description: Model to evaluate
         default: claude-sonnet-5-5
-  pull_request:
-    paths: ["cases/**", "uv.lock", ".github/workflows/evaluate.yml"]
-  schedule:
-    - cron: "0 6 * * 1"
-
-permissions:
-  contents: read
 
 env:
-  CASE: storage-bucket
   MODEL: ${{ inputs.model || 'claude-sonnet-5-5' }}
   # Pinned so runs stay comparable. Bump deliberately.
   KCL_VERSION: v0.13.3
@@ -25,31 +16,11 @@ env:
   KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
 
 jobs:
-  # An artifact holding ONLY the case's prompt: the agent never sees anything else.
-  prompt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: cases/${{ env.CASE }}/prompt.md
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - uses: actions/upload-artifact@v4
-        with:
-          name: prompt
-          path: cases/${{ env.CASE }}/prompt.md
-          retention-days: 1
-
   # No checkout and no permissions: the agent can neither read nor clone this private repo.
   generate:
-    needs: prompt
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: prompt
-          path: ${{ runner.temp }}/prompt
       - uses: astral-sh/setup-uv@v6
       - name: Install tooling
         run: |
@@ -60,15 +31,17 @@ jobs:
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - name: Start from a plain kiln init project
         run: kiln init "$GITHUB_WORKSPACE" --group "s${{ github.run_id }}-1.eval.example.com"
-      - id: prompt
-        run: |
-          delimiter="EOF_$(openssl rand -hex 8)"
-          { echo "text<<$delimiter"; cat "$RUNNER_TEMP/prompt/prompt.md"; echo "$delimiter"; } >> "$GITHUB_OUTPUT"
       - id: claude
         continue-on-error: true   # a failed or exhausted sample is still an Output worth keeping
         uses: anthropics/claude-code-action@f431adaf77e0fecf918431e75a2b5b45b85af002   # v1
         with:
-          prompt: ${{ steps.prompt.outputs.text }}
+          # Must equal cases/storage-bucket/prompt.md (a test enforces it)
+          prompt: |
+            Using kiln, create a composite resource kind called `StorageBucket`.
+
+            Consumers set two things: a required `region` (string), and `versioning` (boolean,
+            defaulting to `true`). A `StorageBucket` composes one AWS S3 bucket in that region and,
+            when versioning is on, enables versioning on that bucket.
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # the job's own zero-permission token, so the action never mints a GitHub App token (which could read the repo)
           github_token: ${{ github.token }}
@@ -84,13 +57,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          out="$RUNNER_TEMP/outputs/$CASE/1"
+          out="$RUNNER_TEMP/outputs/storage-bucket/1"
           mkdir -p "$out"
           cp -a "$GITHUB_WORKSPACE" "$out/project"
           [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ] && cp "$EXECUTION_FILE" "$out/execution.json"
-          jq -n --arg case "$CASE" --argjson sample 1 --arg model "$MODEL" \
-                --arg conclusion "${{ steps.claude.outputs.conclusion }}" --arg run "${{ github.run_id }}" \
-                '{case: $case, sample: $sample, model: $model, conclusion: $conclusion, run_id: $run}' > "$out/manifest.json"
           # the agent can read its own environment: never upload the key
           { grep -rlIF -- "$ANTHROPIC_API_KEY" "$out" || true; } | xargs -r sed -i "s|$ANTHROPIC_API_KEY|[REDACTED]|g"
       - uses: actions/upload-artifact@v4
@@ -99,32 +69,4 @@ jobs:
           name: output
           path: ${{ runner.temp }}/outputs
           include-hidden-files: true
-          retention-days: 90
-
-  # Full checkout, but no API key: generated output is untrusted and the checks must stay hidden from the agent.
-  static:
-    needs: generate
-    if: always() && needs.generate.result != 'skipped'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - name: Install tooling
-        run: |
-          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
-          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
-          chmod +x "$HOME/.local/bin/crossplane"
-      - uses: actions/download-artifact@v4
-        with:
-          name: output
-          path: outputs
-      - run: uv sync --frozen
-      - name: Static checks
-        run: uv run pytest cases --outputs-dir outputs --junitxml results.xml
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: static-results
-          path: results.xml
           retention-days: 90
