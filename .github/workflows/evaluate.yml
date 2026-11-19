@@ -40,4 +40,10 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # the job's own zero-permission token, so the action never mints a GitHub App token (which could read the repo)
           github_token: ${{ github.token }}
+          claude_args: |
+            --model claude-sonnet-5-5
+            --max-turns 40
+            --max-budget-usd 0.50
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
       # (steps in between get added here)
