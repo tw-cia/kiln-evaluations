@@ -11,6 +11,8 @@ env:
   # Pinned so runs stay comparable. Bump deliberately.
   KCL_VERSION: v0.13.3
   CROSSPLANE_VERSION: v2.5.0
+  # the model's name as a DNS label, for the kiln API group; keep in step with the model in shared/agent/opencode.json
+  MODEL_SLUG: qwen3-8-27b
   KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
 
 jobs:
@@ -56,6 +58,9 @@ jobs:
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - run: npm install -g opencode-ai@1.19.6
+      - name: Start from a plain kiln init project
+        working-directory: cases/storage-bucket
+        run: kiln init . --group "storage-bucket.${MODEL_SLUG}.platform.demotw.com"
       - name: Run opencode
         working-directory: cases/storage-bucket
         env:
