@@ -42,12 +42,18 @@ jobs:
           name: case-hello-world
           path: cases/hello-world
       - run: npm install -g opencode-ai@1.19.6
+      - name: Check the endpoint
+        env:
+          TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
+          TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
+        run: |
+          curl -sS -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TW_OPENAI_API_KEY" "$TW_OPENAI_API_URL/models" | head -c 2000
       - name: Run opencode
         working-directory: cases/hello-world
         env:
           TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
           TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
-        run: opencode run "$(cat prompt.md)"
+        run: opencode run --print-logs --log-level DEBUG "$(cat prompt.md)"
 
   aws-readonly:
     runs-on: ubuntu-latest
