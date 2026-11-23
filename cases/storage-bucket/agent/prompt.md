@@ -4,6 +4,6 @@ Consumers set two things: a required `region` (string), and `versioning` (boolea
 defaulting to `true`). A `StorageBucket` composes one AWS S3 bucket in that region and,
 when versioning is on, enables versioning on that bucket.
 
-Write tests for KCL.
+Write tests for KCL, and add a sample `StorageBucket` for `kiln render` to use.
 
 uv tool install "git+https://github.com/leprechaun/kiln#subdirectory=tooling"

@@ -10,7 +10,7 @@ permissions:
 env:
   # Pinned so runs stay comparable. Bump deliberately.
   KCL_VERSION: v0.13.3
-  CROSSPLANE_VERSION: v2.4.3
+  CROSSPLANE_VERSION: v2.5.0
   KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
 
 jobs:
@@ -52,7 +52,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
-          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://cli.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - run: npm install -g opencode-ai@1.19.6
@@ -108,7 +108,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
-          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://cli.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - name: kcl test
