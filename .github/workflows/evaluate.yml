@@ -127,6 +127,47 @@ jobs:
       - run: uv sync --frozen
       - run: uv run pytest cases/storage-bucket --outputs-dir outputs
 
+  apply-qwen3-8-27b:
+    name: apply (qwen3-8-27b)
+    needs: test-qwen3-8-27b
+    # agent-written manifests go to the shared cluster: main only, and only after a reviewer approves the `aws` environment
+    if: github.ref == 'refs/heads/main'
+    environment: aws
+    runs-on: ubuntu-latest
+    # live runs share one cluster, so they queue
+    concurrency:
+      group: live-eks
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+    env:
+      AWS_REGION: ap-southeast-1
+      EKS_CLUSTER: cia-test
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: workspace-storage-bucket-qwen3-8-27b
+          path: project
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::160071257600:role/cia-test-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Set up EKS credentials
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+      - name: Apply the XRD and Composition
+        working-directory: project/manifests/crossplane-compositions/storagebucket
+        run: |
+          kubectl apply -f xrd.yaml -f composition.yaml
+          kubectl wait --for=condition=Established --timeout=120s -f xrd.yaml
+      - name: Apply the sample XR
+        working-directory: project
+        run: |
+          xr=$(find render-fixtures -ipath '*/storagebucket/xr.yaml' | head -n 1)
+          test -n "$xr" || { echo "no sample XR found under render-fixtures/"; exit 1; }
+          ns="eval-${{ github.run_id }}-1"
+          kubectl create namespace "$ns"
+          kubectl apply -n "$ns" -f "$xr"
+
   agent-claude-haiku-5-5:
     name: agent (claude-haiku-5-5)
     if: false   # disabled: remove to run this model again (its test job is skipped with it)
