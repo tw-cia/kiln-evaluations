@@ -129,6 +129,7 @@ jobs:
 
   agent-claude-haiku-5-5:
     name: agent (claude-haiku-5-5)
+    if: false   # disabled: remove to run this model again (its test job is skipped with it)
     needs: setup
     runs-on: ubuntu-latest
     permissions: {}
@@ -223,6 +224,7 @@ jobs:
 
   agent-deepseek-v4-flash:
     name: agent (deepseek-v4-flash)
+    if: false   # disabled: remove to run this model again (its test job is skipped with it)
     needs: setup
     runs-on: ubuntu-latest
     permissions: {}
