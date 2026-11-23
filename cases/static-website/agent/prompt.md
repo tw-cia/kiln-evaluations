@@ -17,5 +17,7 @@ S3 bucket names are unique across all AWS accounts, so two `StaticWebsite`s must
 up asking for the same bucket name, even when they have the same `metadata.name` (in
 different namespaces, or in different clusters).
 
-Write tests for KCL, and add a sample `StaticWebsite` for `kiln render` to use, with sample observed resources so that
-every stage of the composition renders, including the resources that can only exist once AWS has reported on others.
+Write tests for KCL and run them with `kcl test .` until they pass. Add a sample `StaticWebsite` for
+`kiln render` to use, with sample observed resources so that every stage of the composition renders,
+including the resources that can only exist once AWS has reported on others, and run `kiln render-all`
+until every stage renders cleanly. The work is done when both pass.
