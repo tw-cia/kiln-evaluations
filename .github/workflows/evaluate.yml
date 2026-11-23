@@ -8,12 +8,46 @@ permissions:
   contents: read
 
 jobs:
-  checkout:
+  setup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shared
+          path: shared/agent/
+          include-hidden-files: true
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: case-hello-world
+          path: cases/hello-world/agent/
+          include-hidden-files: true
+          retention-days: 1
+
+  agent:
+    needs: setup
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      # shared first, then the case on top, so the case's files win
+      - uses: actions/download-artifact@v4
+        with:
+          name: shared
+          path: cases/hello-world
+      - uses: actions/download-artifact@v4
+        with:
+          name: case-hello-world
+          path: cases/hello-world
+      - run: npm install -g opencode-ai@1.19.6
+      - name: Run opencode
+        working-directory: cases/hello-world
+        env:
+          TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
+          TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
+        run: opencode run "$(cat prompt.md)"
 
   aws-readonly:
     runs-on: ubuntu-latest

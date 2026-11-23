@@ -6,6 +6,8 @@ Evaluates how well an LLM agent can use [kiln](https://github.com/leprechaun/kil
 cases/<name>/
   agent/         everything the agent may see: prompt.md, plus any starting context (the only part that leaves the checkout)
   tests/         the hidden checks and their fixtures: never given to the agent
+shared/
+  agent/         context given to every case's agent (opencode.json, ...), merged under the case's own agent/ by the pipeline
 tests/           tests of the checks themselves (a good Output, and broken ones)
 ```
 
