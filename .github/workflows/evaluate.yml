@@ -125,7 +125,7 @@ jobs:
         working-directory: outputs/storage-bucket/1/project
         run: kiln render-all
       - run: uv sync --frozen
-      - run: uv run pytest cases/storage-bucket --outputs-dir outputs
+      - run: uv run pytest -vv cases/storage-bucket --outputs-dir outputs
 
   apply-qwen3-8-27b:
     name: apply (qwen3-8-27b)
@@ -221,7 +221,7 @@ jobs:
           role-to-assume: arn:aws:iam::160071257600:role/cia-test-readonly
           aws-region: ap-southeast-1
       - uses: astral-sh/setup-uv@v5
-      - run: uv run --no-project --python 3.13 --with pytest pytest cases/storage-bucket/tests/test_live.py
+      - run: uv run --no-project --python 3.13 --with pytest pytest -vv cases/storage-bucket/tests/test_live.py
         env:
           LIVE_RESOURCES: ${{ github.workspace }}/live/resources.json
 
@@ -318,7 +318,7 @@ jobs:
         working-directory: outputs/storage-bucket/1/project
         run: kiln render-all
       - run: uv sync --frozen
-      - run: uv run pytest cases/storage-bucket --outputs-dir outputs
+      - run: uv run pytest -vv cases/storage-bucket --outputs-dir outputs
 
   agent-deepseek-v4-flash:
     name: agent (deepseek-v4-flash)
@@ -413,7 +413,7 @@ jobs:
         working-directory: outputs/storage-bucket/1/project
         run: kiln render-all
       - run: uv sync --frozen
-      - run: uv run pytest cases/storage-bucket --outputs-dir outputs
+      - run: uv run pytest -vv cases/storage-bucket --outputs-dir outputs
 
   aws-readonly:
     runs-on: ubuntu-latest
