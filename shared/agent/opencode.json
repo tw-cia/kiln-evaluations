@@ -9,7 +9,8 @@
         "apiKey": "{env:TW_OPENAI_API_KEY}"
       },
       "models": {
-        "agentworks/qwen3-8-27b": { "name": "Qwen3 8 27B" }
+        "agentworks/qwen3-8-27b": { "name": "Qwen3 8 27B" },
+        "claude-haiku-5-5": { "name": "Claude Haiku 5.5" }
       }
     }
   },
