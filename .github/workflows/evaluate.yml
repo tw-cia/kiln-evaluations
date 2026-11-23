@@ -42,7 +42,7 @@ jobs:
         model:
           # `ref` is how opencode is told to use it: provider "agentworks" plus the id the endpoint serves.
           # Add a model by adding a line; to switch one off, comment it out.
-          - { name: qwen3-8-27b, ref: agentworks/agentworks/qwen3-8-27b, live: true }
+          # - { name: qwen3-8-27b, ref: agentworks/agentworks/qwen3-8-27b, live: true }
           - { name: nemotron-3-5-lightning-30b-a3b, ref: agentworks/agentworks/nemotron-3-5-lightning-30b-a3b, live: true }
           - { name: claude-haiku-5-5, ref: agentworks/claude-haiku-5-5, live: true }
           # - { name: deepseek-v4-flash, ref: agentworks/deepseek-ai/Deepseek-V4-Flash }

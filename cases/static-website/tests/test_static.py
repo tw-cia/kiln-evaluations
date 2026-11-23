@@ -76,8 +76,8 @@ def test_generated_files_are_current(sample, tmp_path):
 
 
 @pytest.fixture
-def rendered(sample, tmp_path):
-    """Everything the Composition composes across all stages: cold, then once per observed-*.yaml fixture.
+def stages(sample, tmp_path):
+    """The Composition rendered cold, then once per observed-*.yaml fixture, in name order: a list of stages.
 
     The distribution needs the certificate's ARN and the DNS records need the validation options, which only
     exist once AWS reports them, so a later stage is the only place some of the resources can appear.
@@ -85,16 +85,18 @@ def rendered(sample, tmp_path):
     project = _copy_of_project(sample, tmp_path)
     xr = _sample_xr(project)
     fixtures = next(d for d in (project / "render-fixtures").iterdir() if d.name.lower() == KIND.lower())
-    stages = [None, *sorted(fixtures.glob("observed-*.yaml"))]
-    composed = {}
-    for number, observed in enumerate(stages):
-        for resource in _render(project, xr, tmp_path / f"xr-{number}.yaml", observed):
-            composed[(resource["kind"], resource["metadata"].get("name"), resource["metadata"].get("annotations", {}).get("krm.kcl.dev/composition-resource-name"))] = resource
-    return list(composed.values())
+    observed = [None, *sorted(fixtures.glob("observed-*.yaml"))]
+    return [_render(project, xr, tmp_path / f"xr-{number}.yaml", stage) for number, stage in enumerate(observed)]
 
 
-def test_it_composes_the_four_kinds_of_resource(rendered):
-    kinds = {r["kind"] for r in rendered}
+@pytest.fixture
+def rendered(stages):
+    """The final stage, where everything the agent expects to exist does: the one to judge the shape of each resource on."""
+    return stages[-1]
+
+
+def test_it_composes_the_four_kinds_of_resource(stages):
+    kinds = {r["kind"] for stage in stages for r in stage}
 
     assert {"Bucket", "Certificate", "Distribution", "Record"} <= kinds, (
         f"composed only {sorted(kinds)}: do the sample XR and its observed-*.yaml stages reach every resource?"
