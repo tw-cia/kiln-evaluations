@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned so runs stay comparable. Bump deliberately.
+  KCL_VERSION: v0.13.3
+  CROSSPLANE_VERSION: v2.4.3
+  KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
+
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -22,8 +28,8 @@ jobs:
           retention-days: 1
       - uses: actions/upload-artifact@v4
         with:
-          name: case-hello-world
-          path: cases/hello-world/agent/
+          name: case-storage-bucket
+          path: cases/storage-bucket/agent/
           include-hidden-files: true
           retention-days: 1
 
@@ -36,11 +42,19 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: shared
-          path: cases/hello-world
+          path: cases/storage-bucket
       - uses: actions/download-artifact@v4
         with:
-          name: case-hello-world
-          path: cases/hello-world
+          name: case-storage-bucket
+          path: cases/storage-bucket
+      - uses: astral-sh/setup-uv@v5
+      - name: Install tooling
+        run: |
+          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          chmod +x "$HOME/.local/bin/crossplane"
+          uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - run: npm install -g opencode-ai@1.19.6
       - name: Check the endpoint
         env:
@@ -49,7 +63,7 @@ jobs:
         run: |
           curl -sS -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TW_OPENAI_API_KEY" "$TW_OPENAI_API_URL/models" | head -c 2000
       - name: Run opencode
-        working-directory: cases/hello-world
+        working-directory: cases/storage-bucket
         env:
           TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
           TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
@@ -57,8 +71,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: workspace-hello-world
-          path: cases/hello-world/
+          name: workspace-storage-bucket
+          path: cases/storage-bucket/
           include-hidden-files: true
           retention-days: 1
 
@@ -72,10 +86,18 @@ jobs:
       # the checks expect outputs/<case>/<sample>/project
       - uses: actions/download-artifact@v4
         with:
-          name: workspace-hello-world
-          path: outputs/hello-world/1/project
+          name: workspace-storage-bucket
+          path: outputs/storage-bucket/1/project
       - uses: astral-sh/setup-uv@v5
-      - run: uv run --no-project --python 3.13 --with pytest pytest cases/hello-world --outputs-dir outputs
+      - name: Install tooling
+        run: |
+          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          chmod +x "$HOME/.local/bin/crossplane"
+          uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
+      - run: uv sync --frozen
+      - run: uv run pytest cases/storage-bucket --outputs-dir outputs
 
   aws-readonly:
     runs-on: ubuntu-latest
