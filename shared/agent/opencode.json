@@ -17,5 +17,6 @@
       }
     }
   },
-  "model": "agentworks/agentworks/qwen3-8-27b"
+  "model": "agentworks/agentworks/qwen3-8-27b",
+  "experimental": { "openTelemetry": true }
 }

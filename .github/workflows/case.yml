@@ -30,6 +30,7 @@ env:
   KCL_VERSION: v0.13.3
   CROSSPLANE_VERSION: v2.5.0
   KILN_COMMIT: 22bb78aaf4aa6c3960ff0e94a8a4263449413ba3   # keep equal to the kiln commit in uv.lock
+  OPENCODE_VERSION: 1.19.6
 
 jobs:
   agent:
@@ -54,10 +55,18 @@ jobs:
           curl -fsSL -o "$HOME/.local/bin/crossplane" "https://cli.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
-      - run: npm install -g opencode-ai@1.19.6
+      - run: npm install -g "opencode-ai@${OPENCODE_VERSION}"
       - name: Start from a plain kiln init project
         working-directory: work
         run: kiln init . --group "${CASE}.${MODEL_SLUG}.platform.demotw.com"
+      # what the prompt and the config were, as the agent will see them (after kiln init); read by the telemetry below
+      - name: Fingerprint the inputs
+        working-directory: work
+        run: |
+          {
+            echo "PROMPT_SHA256=$(sha256sum prompt.md | cut -d' ' -f1)"
+            echo "CONFIG_SHA256=$(sha256sum opencode.json | cut -d' ' -f1)"
+          } >> "$GITHUB_ENV"
       - name: Run opencode
         working-directory: work
         env:
@@ -65,6 +74,13 @@ jobs:
           OPENCODE_PERMISSION: '{"*": "allow"}'
           TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
           TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
+          # traces go to your OTLP collector; with no endpoint secret set, nothing is exported
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          OTEL_SERVICE_NAME: opencode
+          # spans are sent in batches of this many (the SDK default is 512)
+          OTEL_BSP_MAX_EXPORT_BATCH_SIZE: '50'
+          OTEL_RESOURCE_ATTRIBUTES: case=${{ inputs.case }},model=${{ inputs.model }},model.ref=${{ inputs.model-ref }},github.repository=${{ github.repository }},github.event_name=${{ github.event_name }},github.ref_name=${{ github.ref_name }},github.sha=${{ github.sha }},github.run_id=${{ github.run_id }},github.run_number=${{ github.run_number }},github.run_attempt=${{ github.run_attempt }},run.url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }},opencode.version=${{ env.OPENCODE_VERSION }},kcl.version=${{ env.KCL_VERSION }},crossplane.version=${{ env.CROSSPLANE_VERSION }},kiln.commit=${{ env.KILN_COMMIT }},prompt.sha256=${{ env.PROMPT_SHA256 }},config.sha256=${{ env.CONFIG_SHA256 }}
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/session"
