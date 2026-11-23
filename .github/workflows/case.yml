@@ -223,3 +223,50 @@ jobs:
       - run: uv run --no-project --python 3.13 --with pytest pytest -vv cases/storage-bucket/tests/test_live.py
         env:
           LIVE_RESOURCES: ${{ github.workspace }}/live/resources.json
+
+  cleanup:
+    name: cleanup (${{ inputs.case }}, ${{ inputs.model }})
+    needs: [apply, verify]
+    # runs whether apply or verify passed, failed or were cancelled, but not when live was never in play
+    if: always() && needs.apply.result != 'skipped'
+    # same trust as apply: the cluster role is only assumable from the `aws` environment
+    environment: aws
+    runs-on: ubuntu-latest
+    # no concurrency group on purpose: a group keeps only one waiting job and would cancel another model's apply.
+    # Everything here is scoped to this model's own namespace, XRD and Composition.
+    permissions:
+      id-token: write
+    env:
+      AWS_REGION: ap-southeast-1
+      EKS_CLUSTER: cia-test
+      NS: eval-${{ github.run_id }}-${{ inputs.model }}
+    steps:
+      # the manifests the apply job applied: delete exactly those
+      - uses: actions/download-artifact@v4
+        with:
+          name: workspace-${{ inputs.case }}-${{ inputs.model }}
+          path: project
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::160071257600:role/cia-test-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+      - run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+      - name: Delete the XR and wait for AWS to be cleaned up
+        working-directory: project
+        run: |
+          xr=$(find render-fixtures -ipath '*/storagebucket/xr.yaml' | head -n 1)
+          # the XR first, so Crossplane removes the composed AWS resources while the Composition still exists
+          [ -z "$xr" ] || ns="$NS" yq '.metadata.namespace = strenv(ns)' "$xr" | kubectl delete -f - --ignore-not-found --wait --timeout=15m
+          # deleting the XR returns before its buckets are gone, so wait for the managed resources too
+          for i in $(seq 1 60); do
+            left=$(kubectl get managed -n "$NS" --no-headers 2>/dev/null | wc -l)
+            [ "$left" -eq 0 ] && exit 0
+            echo "$left managed resource(s) still deleting"; sleep 15
+          done
+          echo "managed resources left in $NS after 15 minutes: clean up by hand"; kubectl get managed -n "$NS"; exit 1
+      - name: Delete the namespace, Composition and XRD
+        if: always()
+        working-directory: project/manifests/crossplane-compositions/storagebucket
+        run: |
+          kubectl delete namespace "$NS" --ignore-not-found --wait --timeout=5m
+          kubectl delete -f composition.yaml -f xrd.yaml --ignore-not-found --wait --timeout=5m
