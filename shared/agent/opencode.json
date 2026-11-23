@@ -9,7 +9,7 @@
         "apiKey": "{env:TW_OPENAI_API_KEY}"
       },
       "models": {
-        "qwen3-8-27b": { "name": "Qwen3 8 27B" }
+        "agentworks/qwen3-8-27b": { "name": "Qwen3 8 27B" }
       }
     }
   },
