@@ -133,10 +133,8 @@ jobs:
     if: inputs.live && inputs.case == 'storage-bucket' && github.ref == 'refs/heads/main'
     environment: aws
     runs-on: ubuntu-latest
-    # live runs share one cluster, so they queue
-    concurrency:
-      group: live-eks
-      cancel-in-progress: false
+    # no concurrency group: a group keeps only one waiting job and cancels the rest, which would drop applies as soon
+    # as three models are live. Each model has its own API group, XRD, Composition and namespace, so they cannot clash.
     permissions:
       id-token: write
     env:

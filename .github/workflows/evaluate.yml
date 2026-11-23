@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        case: [storage-bucket, static-website]
+        case: [static-website]   # storage-bucket is switched off; keep this list equal to the one in `evaluate` below
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,13 +38,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: [storage-bucket, static-website]
+        case: [static-website]   # storage-bucket is switched off: add it back here and in `setup` above
         model:
           # `ref` is how opencode is told to use it: provider "agentworks" plus the id the endpoint serves.
           # Add a model by adding a line; to switch one off, comment it out.
           - { name: qwen3-8-27b, ref: agentworks/agentworks/qwen3-8-27b, live: true }
           - { name: nemotron-3-5-lightning-30b-a3b, ref: agentworks/agentworks/nemotron-3-5-lightning-30b-a3b, live: true }
-          # - { name: claude-haiku-5-5, ref: agentworks/claude-haiku-5-5 }
+          - { name: claude-haiku-5-5, ref: agentworks/claude-haiku-5-5, live: true }
           # - { name: deepseek-v4-flash, ref: agentworks/deepseek-ai/Deepseek-V4-Flash }
           # - { name: glm-5-3, ref: agentworks/zai-org/GLM-5.3 }
     uses: ./.github/workflows/case.yml
@@ -58,25 +58,3 @@ jobs:
     permissions:
       contents: read
       id-token: write
-
-  aws-readonly:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::160071257600:role/cia-test-readonly
-          aws-region: us-east-1
-      - run: aws sts get-caller-identity
-
-  aws-github-actions:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::160071257600:role/cia-test-github-actions
-          aws-region: us-east-1
-      - run: aws sts get-caller-identity
