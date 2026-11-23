@@ -221,6 +221,100 @@ jobs:
       - run: uv sync --frozen
       - run: uv run pytest cases/storage-bucket --outputs-dir outputs
 
+  agent-deepseek-v4:
+    name: agent (deepseek-v4)
+    needs: setup
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      MODEL_SLUG: deepseek-v4
+    steps:
+      # shared first, then the case on top, so the case's files win
+      - uses: actions/download-artifact@v4
+        with:
+          name: shared
+          path: cases/storage-bucket
+      - uses: actions/download-artifact@v4
+        with:
+          name: case-storage-bucket
+          path: cases/storage-bucket
+      - uses: astral-sh/setup-uv@v5
+      - name: Install tooling
+        run: |
+          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://cli.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          chmod +x "$HOME/.local/bin/crossplane"
+          uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
+      - run: npm install -g opencode-ai@1.19.6
+      - name: Start from a plain kiln init project
+        working-directory: cases/storage-bucket
+        run: kiln init . --group "storage-bucket.${MODEL_SLUG}.platform.demotw.com"
+      - name: Run opencode
+        working-directory: cases/storage-bucket
+        env:
+          # the runner is disposable and holds no credentials beyond the LLM key, so nothing needs approving
+          OPENCODE_PERMISSION: '{"*": "allow"}'
+          TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
+          TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/session"
+          opencode run --model "agentworks/deepseek-ai/Deepseek-V4" --format json "$(cat prompt.md)" | tee "$RUNNER_TEMP/session/events.jsonl"
+      # kept outside the workspace so the checks never see them
+      - name: Export the session
+        if: always()
+        working-directory: cases/storage-bucket
+        run: |
+          mkdir -p "$RUNNER_TEMP/session"
+          id=$(opencode session list -n 1 --format json | jq -r '.[0].id')
+          opencode export "$id" > "$RUNNER_TEMP/session/session.json"
+          opencode stats --models > "$RUNNER_TEMP/session/stats.txt"
+          { echo '### opencode token usage'; echo '```'; cat "$RUNNER_TEMP/session/stats.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: session-storage-bucket-deepseek-v4
+          path: ${{ runner.temp }}/session/
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-storage-bucket-deepseek-v4
+          path: cases/storage-bucket/
+          include-hidden-files: true
+          retention-days: 1
+
+  test-deepseek-v4:
+    name: test (deepseek-v4)
+    needs: agent-deepseek-v4
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # the checks expect outputs/<case>/<sample>/project
+      - uses: actions/download-artifact@v4
+        with:
+          name: workspace-storage-bucket-deepseek-v4
+          path: outputs/storage-bucket/1/project
+      - uses: astral-sh/setup-uv@v5
+      - name: Install tooling
+        run: |
+          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://github.com/kcl-lang/cli/releases/download/${KCL_VERSION}/kcl-${KCL_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" kcl
+          curl -fsSL -o "$HOME/.local/bin/crossplane" "https://cli.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
+          chmod +x "$HOME/.local/bin/crossplane"
+          uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
+      - name: kcl test
+        working-directory: outputs/storage-bucket/1/project/kcl-scripts
+        run: kcl test .
+      - name: kiln render
+        working-directory: outputs/storage-bucket/1/project
+        run: kiln render-all
+      - run: uv sync --frozen
+      - run: uv run pytest cases/storage-bucket --outputs-dir outputs
+
   aws-readonly:
     runs-on: ubuntu-latest
     permissions:

@@ -10,7 +10,8 @@
       },
       "models": {
         "agentworks/qwen3-8-27b": { "name": "Qwen3 8 27B" },
-        "claude-haiku-5-5": { "name": "Claude Haiku 5.5" }
+        "claude-haiku-5-5": { "name": "Claude Haiku 5.5" },
+        "deepseek-ai/Deepseek-V4": { "name": "DeepSeek V4" }
       }
     }
   },
