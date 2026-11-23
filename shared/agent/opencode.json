@@ -13,6 +13,5 @@
       }
     }
   },
-  "model": "agentworks/agentworks/qwen3-8-27b",
-  "permission": { "edit": "allow", "bash": "allow" }
+  "model": "agentworks/agentworks/qwen3-8-27b"
 }
