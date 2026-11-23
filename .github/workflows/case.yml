@@ -41,7 +41,23 @@ jobs:
       CASE: ${{ inputs.case }}
       MODEL_SLUG: ${{ inputs.model }}
       MODEL_REF: ${{ inputs.model-ref }}
+    # facts for the report job at the end: when it ran, what it cost, how much work the agent did
+    outputs:
+      started: ${{ steps.t0.outputs.started }}
+      ended: ${{ steps.facts.outputs.ended }}
+      turns: ${{ steps.facts.outputs.turns }}
+      tool_calls: ${{ steps.facts.outputs.tool_calls }}
+      tokens_input: ${{ steps.facts.outputs.tokens_input }}
+      tokens_output: ${{ steps.facts.outputs.tokens_output }}
+      tokens_reasoning: ${{ steps.facts.outputs.tokens_reasoning }}
+      tokens_cache_read: ${{ steps.facts.outputs.tokens_cache_read }}
+      tokens_cache_write: ${{ steps.facts.outputs.tokens_cache_write }}
+      cost: ${{ steps.facts.outputs.cost }}
+      prompt_sha256: ${{ steps.fp.outputs.prompt_sha256 }}
+      config_sha256: ${{ steps.fp.outputs.config_sha256 }}
     steps:
+      - id: t0
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
       # setup already laid the case on top of the shared config
       - uses: actions/download-artifact@v4
         with:
@@ -61,12 +77,12 @@ jobs:
         run: kiln init . --group "${CASE}.${MODEL_SLUG}.platform.demotw.com"
       # what the prompt and the config were, as the agent will see them (after kiln init); read by the telemetry below
       - name: Fingerprint the inputs
+        id: fp
         working-directory: work
         run: |
-          {
-            echo "PROMPT_SHA256=$(sha256sum prompt.md | cut -d' ' -f1)"
-            echo "CONFIG_SHA256=$(sha256sum opencode.json | cut -d' ' -f1)"
-          } >> "$GITHUB_ENV"
+          prompt=$(sha256sum prompt.md | cut -d' ' -f1); config=$(sha256sum opencode.json | cut -d' ' -f1)
+          { echo "PROMPT_SHA256=$prompt"; echo "CONFIG_SHA256=$config"; } >> "$GITHUB_ENV"
+          { echo "prompt_sha256=$prompt"; echo "config_sha256=$config"; } >> "$GITHUB_OUTPUT"
       - name: Run opencode
         working-directory: work
         env:
@@ -95,6 +111,29 @@ jobs:
           opencode export "$id" > "$RUNNER_TEMP/session/session.json"
           opencode stats --models > "$RUNNER_TEMP/session/stats.txt"
           { echo '### opencode token usage'; echo '```'; cat "$RUNNER_TEMP/session/stats.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Summarise the session
+        id: facts
+        if: always()
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, os, time
+          print(f"ended={int(time.time())}")
+          try:
+              session = json.load(open(os.environ["RUNNER_TEMP"] + "/session/session.json"))
+          except Exception:
+              raise SystemExit  # no session to summarise
+          tokens = session["info"].get("tokens") or {}
+          cache = tokens.get("cache") or {}
+          messages = session.get("messages") or []
+          print(f"turns={sum(1 for m in messages if m['info'].get('role') == 'assistant')}")
+          print(f"tool_calls={sum(1 for m in messages for part in m.get('parts', []) if part.get('type') == 'tool')}")
+          print(f"tokens_input={tokens.get('input', 0)}")
+          print(f"tokens_output={tokens.get('output', 0)}")
+          print(f"tokens_reasoning={tokens.get('reasoning', 0)}")
+          print(f"tokens_cache_read={cache.get('read', 0)}")
+          print(f"tokens_cache_write={cache.get('write', 0)}")
+          print(f"cost={session['info'].get('cost', 0)}")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -115,7 +154,16 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CASE: ${{ inputs.case }}
+    outputs:
+      started: ${{ steps.t0.outputs.started }}
+      ended: ${{ steps.facts.outputs.ended }}
+      tests_passed: ${{ steps.facts.outputs.tests_passed }}
+      tests_failed: ${{ steps.facts.outputs.tests_failed }}
+      kcl_test: ${{ steps.kcl.outcome }}
+      kiln_render: ${{ steps.render.outcome }}
     steps:
+      - id: t0
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -133,13 +181,31 @@ jobs:
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - name: kcl test
+        id: kcl
         working-directory: outputs/${{ inputs.case }}/1/project/kcl-scripts
         run: kcl test .
       - name: kiln render
+        id: render
         working-directory: outputs/${{ inputs.case }}/1/project
         run: kiln render-all
       - run: uv sync --frozen
-      - run: uv run pytest -vv "cases/$CASE" --outputs-dir outputs
+      - run: uv run pytest -vv "cases/$CASE" --outputs-dir outputs --junitxml "$RUNNER_TEMP/results.xml"
+      - name: Count the checks
+        id: facts
+        if: always()
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import os, time, xml.etree.ElementTree as ET
+          print(f"ended={int(time.time())}")
+          try:
+              suite = ET.parse(os.environ["RUNNER_TEMP"] + "/results.xml").getroot()
+              suite = suite if suite.tag == "testsuite" else suite[0]
+          except Exception:
+              raise SystemExit  # pytest never got as far as writing results
+          total, bad = int(suite.get("tests", 0)), int(suite.get("failures", 0)) + int(suite.get("errors", 0))
+          print(f"tests_passed={total - bad - int(suite.get('skipped', 0))}")
+          print(f"tests_failed={bad}")
+          PY
 
   apply:
     name: apply (${{ inputs.case }}, ${{ inputs.model }})
@@ -156,7 +222,12 @@ jobs:
     env:
       AWS_REGION: ap-southeast-1
       EKS_CLUSTER: cia-test
+    outputs:
+      started: ${{ steps.t0.outputs.started }}
+      ended: ${{ steps.t1.outputs.ended }}
     steps:
+      - id: t0
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           name: workspace-${{ inputs.case }}-${{ inputs.model }}
@@ -213,6 +284,9 @@ jobs:
         run: |
           kubectl describe "$XR_TYPE" "$XR_NAME" -n "$NS" || true
           kubectl get managed -n "$NS" || true
+      - id: t1
+        if: always()
+        run: echo "ended=$(date +%s)" >> "$GITHUB_OUTPUT"
 
   verify:
     name: verify (${{ inputs.case }}, ${{ inputs.model }})
@@ -221,7 +295,12 @@ jobs:
     # read-only AWS role, and no cluster access: it only reads what the apply job recorded
     permissions:
       id-token: write
+    outputs:
+      started: ${{ steps.t0.outputs.started }}
+      ended: ${{ steps.t1.outputs.ended }}
     steps:
+      - id: t0
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -237,6 +316,9 @@ jobs:
       - run: uv run --no-project --python 3.13 --with pytest pytest -vv cases/storage-bucket/tests/test_live.py
         env:
           LIVE_RESOURCES: ${{ github.workspace }}/live/resources.json
+      - id: t1
+        if: always()
+        run: echo "ended=$(date +%s)" >> "$GITHUB_OUTPUT"
 
   cleanup:
     name: cleanup (${{ inputs.case }}, ${{ inputs.model }})
@@ -254,7 +336,12 @@ jobs:
       AWS_REGION: ap-southeast-1
       EKS_CLUSTER: cia-test
       NS: eval-${{ github.run_id }}-${{ inputs.model }}
+    outputs:
+      started: ${{ steps.t0.outputs.started }}
+      ended: ${{ steps.t1.outputs.ended }}
     steps:
+      - id: t0
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
       # the manifests the apply job applied: delete exactly those
       - uses: actions/download-artifact@v4
         with:
@@ -284,3 +371,25 @@ jobs:
         run: |
           kubectl delete namespace "$NS" --ignore-not-found --wait --timeout=5m
           kubectl delete -f composition.yaml -f xrd.yaml --ignore-not-found --wait --timeout=5m
+      - id: t1
+        if: always()
+        run: echo "ended=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+  # The one place that sends the pipeline's own telemetry: a span per job and a run.summary, built from what the jobs
+  # recorded. It runs no agent code and reads no agent files; the values are only ever span attributes.
+  report:
+    name: report (${{ inputs.case }}, ${{ inputs.model }})
+    needs: [agent, test, apply, verify, cleanup]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - run: python3 scripts/emit_spans.py
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          OTEL_RESOURCE_ATTRIBUTES: case=${{ inputs.case }},model=${{ inputs.model }},model.ref=${{ inputs.model-ref }},github.repository=${{ github.repository }},github.event_name=${{ github.event_name }},github.ref_name=${{ github.ref_name }},github.sha=${{ github.sha }},github.run_id=${{ github.run_id }},github.run_number=${{ github.run_number }},github.run_attempt=${{ github.run_attempt }},run.url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }},opencode.version=${{ env.OPENCODE_VERSION }},kcl.version=${{ env.KCL_VERSION }},crossplane.version=${{ env.CROSSPLANE_VERSION }},kiln.commit=${{ env.KILN_COMMIT }}
