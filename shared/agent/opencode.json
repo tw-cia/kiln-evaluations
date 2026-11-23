@@ -11,7 +11,9 @@
       "models": {
         "agentworks/qwen3-8-27b": { "name": "Qwen3 8 27B" },
         "claude-haiku-5-5": { "name": "Claude Haiku 5.5" },
-        "deepseek-ai/Deepseek-V4-Flash": { "name": "DeepSeek V4 Flash" }
+        "deepseek-ai/Deepseek-V4-Flash": { "name": "DeepSeek V4 Flash" },
+        "zai-org/GLM-5.3": { "name": "GLM 5.3" },
+        "agentworks/nemotron-3-5-lightning-30b-a3b": { "name": "Nemotron 3.5 Lightning 30B A3B" }
       }
     }
   },
