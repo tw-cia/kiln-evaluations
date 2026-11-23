@@ -166,7 +166,8 @@ jobs:
           test -n "$xr" || { echo "no sample XR found under render-fixtures/"; exit 1; }
           ns="eval-${{ github.run_id }}-1"
           kubectl create namespace "$ns"
-          kubectl apply -n "$ns" -f "$xr"
+          # the agent's sample XR may name its own namespace (e.g. default); the run's namespace wins
+          ns="$ns" yq '.metadata.namespace = strenv(ns)' "$xr" | kubectl apply -f -
 
   agent-claude-haiku-5-5:
     name: agent (claude-haiku-5-5)
