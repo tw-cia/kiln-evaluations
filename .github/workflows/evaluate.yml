@@ -56,12 +56,6 @@ jobs:
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
       - run: npm install -g opencode-ai@1.19.6
-      - name: Check the endpoint
-        env:
-          TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
-          TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
-        run: |
-          curl -sS -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TW_OPENAI_API_KEY" "$TW_OPENAI_API_URL/models" | head -c 2000
       - name: Run opencode
         working-directory: cases/storage-bucket
         env:
@@ -69,7 +63,26 @@ jobs:
           OPENCODE_PERMISSION: '{"*": "allow"}'
           TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
           TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
-        run: opencode run --print-logs --log-level DEBUG "$(cat prompt.md)"
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/session"
+          opencode run --format json "$(cat prompt.md)" | tee "$RUNNER_TEMP/session/events.jsonl"
+      # kept outside the workspace so the checks never see them
+      - name: Export the session
+        if: always()
+        working-directory: cases/storage-bucket
+        run: |
+          mkdir -p "$RUNNER_TEMP/session"
+          id=$(opencode session list -n 1 --format json | jq -r '.[0].id')
+          opencode export "$id" > "$RUNNER_TEMP/session/session.json"
+          opencode stats --models > "$RUNNER_TEMP/session/stats.txt"
+          { echo '### opencode token usage'; echo '```'; cat "$RUNNER_TEMP/session/stats.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: session-storage-bucket
+          path: ${{ runner.temp }}/session/
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
