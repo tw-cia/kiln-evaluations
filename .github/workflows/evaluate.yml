@@ -54,6 +54,28 @@ jobs:
           TW_OPENAI_API_URL: ${{ secrets.TW_OPENAI_API_URL }}
           TW_OPENAI_API_KEY: ${{ secrets.TW_OPENAI_API_KEY }}
         run: opencode run --print-logs --log-level DEBUG "$(cat prompt.md)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-hello-world
+          path: cases/hello-world/
+          include-hidden-files: true
+          retention-days: 1
+
+  test:
+    needs: agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # the checks expect outputs/<case>/<sample>/project
+      - uses: actions/download-artifact@v4
+        with:
+          name: workspace-hello-world
+          path: outputs/hello-world/1/project
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --no-project --python 3.13 --with pytest pytest cases/hello-world --outputs-dir outputs
 
   aws-readonly:
     runs-on: ubuntu-latest
