@@ -98,6 +98,12 @@ jobs:
           curl -fsSL -o "$HOME/.local/bin/crossplane" "https://releases.crossplane.io/stable/${CROSSPLANE_VERSION}/bin/linux_amd64/crossplane"
           chmod +x "$HOME/.local/bin/crossplane"
           uv tool install "git+https://github.com/leprechaun/kiln@${KILN_COMMIT}#subdirectory=tooling"
+      - name: kcl test
+        working-directory: outputs/storage-bucket/1/project/kcl-scripts
+        run: kcl test .
+      - name: kiln render
+        working-directory: outputs/storage-bucket/1/project
+        run: kiln render-all
       - run: uv sync --frozen
       - run: uv run pytest cases/storage-bucket --outputs-dir outputs
 

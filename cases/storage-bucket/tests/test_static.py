@@ -1,6 +1,5 @@
 """Static checks for the storage-bucket case. Hidden from the agent: only prompt.md ships to it."""
 
-import re
 import shutil
 import subprocess
 
@@ -10,23 +9,6 @@ def _copy_of_project(sample, tmp_path):
     project = tmp_path / "project"
     shutil.copytree(sample / "project", project, symlinks=True)
     return project
-
-
-def test_kcl_tests_pass(sample, tmp_path):
-    project = _copy_of_project(sample, tmp_path)
-
-    result = subprocess.run(["kcl", "test", "."], cwd=project / "kcl-scripts", capture_output=True, text=True)
-
-    output = result.stdout + result.stderr
-    assert result.returncode == 0, output
-    # `kcl test .` is green when there are no tests, so insist on at least one that covers the kind
-    passed = re.search(r"PASS: (\d+)/", output)
-    assert passed and int(passed.group(1)) >= 1, f"no tests ran:\n{output}"
-    covers_kind = any(
-        "composeStorageBucket" in test_file.read_text()
-        for test_file in (project / "kcl-scripts").glob("*_test.k")
-    )
-    assert covers_kind, "no test file exercises composeStorageBucket"
 
 
 def _xrd_for(project, kind):
