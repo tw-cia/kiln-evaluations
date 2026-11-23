@@ -168,6 +168,62 @@ jobs:
           kubectl create namespace "$ns"
           # the agent's sample XR may name its own namespace (e.g. default); the run's namespace wins
           ns="$ns" yq '.metadata.namespace = strenv(ns)' "$xr" | kubectl apply -f -
+          # for the steps below
+          {
+            echo "NS=$ns"
+            echo "XR_NAME=$(yq '.metadata.name' "$xr")"
+            echo "XR_TYPE=$(yq '.kind' "$xr").$(yq '.apiVersion' "$xr" | cut -d/ -f1)"
+          } >> "$GITHUB_ENV"
+      - name: Wait for the XR to be ready
+        run: kubectl wait --for=condition=Ready --timeout=10m -n "$NS" "$XR_TYPE/$XR_NAME"
+      # what Crossplane says it created, read from the cluster itself: the verify job works from this
+      - name: Record the composed resources
+        if: always() && env.XR_NAME != ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/live"; cd "$RUNNER_TEMP/live"
+          kubectl get "$XR_TYPE" "$XR_NAME" -n "$NS" -o json > xr.json
+          : > refs.jsonl
+          jq -r '(.spec.crossplane.resourceRefs // .spec.resourceRefs // [])[] | [.apiVersion, .kind, .name] | @tsv' xr.json |
+            while IFS=$'\t' read -r api kind name; do
+              kubectl get "${kind}.${api%%/*}" "$name" -n "$NS" -o json >> refs.jsonl
+            done
+          jq -s --slurpfile xr xr.json '{xr: $xr[0], resources: .}' refs.jsonl > resources.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-resources-qwen3-8-27b
+          path: ${{ runner.temp }}/live/resources.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Explain a failure
+        if: failure() && env.XR_NAME != ''
+        run: |
+          kubectl describe "$XR_TYPE" "$XR_NAME" -n "$NS" || true
+          kubectl get managed -n "$NS" || true
+
+  verify-qwen3-8-27b:
+    name: verify (qwen3-8-27b)
+    needs: apply-qwen3-8-27b
+    runs-on: ubuntu-latest
+    # read-only AWS role, and no cluster access: it only reads what the apply job recorded
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: live-resources-qwen3-8-27b
+          path: live
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::160071257600:role/cia-test-readonly
+          aws-region: ap-southeast-1
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --no-project --python 3.13 --with pytest pytest cases/storage-bucket/tests/test_live.py
+        env:
+          LIVE_RESOURCES: ${{ github.workspace }}/live/resources.json
 
   agent-claude-haiku-5-5:
     name: agent (claude-haiku-5-5)
